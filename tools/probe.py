@@ -125,11 +125,12 @@ class Game:
                 self.p.button_release(k)
 
     def start(self, boot=150, settle=120):
-        """No title screen in this build: main() calls new_game() itself, about
-        75 PyBoy ticks in. `settle` then drains the 90-frame spawn
-        invulnerability. Pass settle=0 to inspect the opening position before
-        any lander has had time to move."""
+        """Boots to the title screen, presses START, then drains the 90-frame
+        spawn invulnerability. START is held 20 frames because PyBoy swallows
+        input for several ticks after its own boot splash. Pass settle=0 to
+        inspect the opening position before any lander has had time to move."""
         self.run(boot)                      # past PyBoy's own boot splash
+        self.run(20, "S")                   # title screen -> new_game()
         self.run(settle)
 
     def autopilot(self, frames, fire=True, catch=False):
@@ -139,9 +140,8 @@ class Game:
         on anything else, which is where the rescue evidence comes from.
 
         `catch` goes for a falling human instead, and holds fire while doing
-        it. The catch window is short -- a human drops 2 px/frame and is gone
-        within about forty -- so this takes whatever is falling rather than
-        picking a target."""
+        it. The catch window is short -- a human drops FALL_STEP px/frame -- so
+        this takes whatever is falling rather than picking a target."""
         for _ in range(frames):
             sx, sy = self.ship
             aim = None
@@ -290,9 +290,8 @@ def smoke(rom, mapfile):
                  "dead" if st == HUM_DEAD else "standing"))
 
     # The rescue: fly into a falling human, carry it down, set it on the deck.
-    # The catch window is short -- 2 px/frame, and the human is gone within
-    # about forty -- so this takes whatever falls nearby rather than picking a
-    # target, and plays until it happens.
+    # The catch window is short -- FALL_STEP px/frame -- so this takes whatever
+    # falls nearby rather than picking a target, and plays until it happens.
     print("rescue -- catch and carry")
     g = Game(rom, mapfile)
     g.start()

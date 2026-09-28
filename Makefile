@@ -1,13 +1,16 @@
 # GB-Protector build.
 #   make          build protector.gb   (GBDK if GBDK_HOME is set, else Docker)
 #   make test     host unit tests for sim.h (plain gcc, no emulator)
+#   make probe    headless PyBoy play-test of the main.c rules
+#   make fps      headless frame-rate check (render must fit in vblank)
 #   make gfx      regenerate gfx.h from mkgfx.py
+#   make title    regenerate title.h (title image) from tools/mktitle.py
 #   make usage    ROM/RAM headroom
 #   make image    build the gbdk-dev Docker image used when GBDK_HOME is absent
 #   make clean
 
 ROM  = protector.gb
-SRCS = main.c sim.h gfx.h
+SRCS = main.c sim.h gfx.h title.h
 # The probe needs PyBoy. Prefer the project venv, fall back to whatever python3
 # is on PATH: make probe PY=python3
 ifneq ($(wildcard .venv/bin/python),)
@@ -51,6 +54,13 @@ sym: $(SRCS)
 probe: sym
 	$(PY) tools/probe.py $(ROM) $(ROM:.gb=.map)
 
+# Headless frame-rate check: render() runs before wait_vbl_done(), so anything
+# that overruns the frame budget silently halves the game and neither `test`
+# nor `probe` notices. Reads the game's own frame counter per emulated frame.
+# Dev-only; nothing else needs it.
+fps: sym
+	$(PY) tools/fps.py $(ROM) $(ROM:.gb=.map)
+
 test: tests/test_sim
 	./tests/test_sim
 
@@ -59,6 +69,9 @@ tests/test_sim: tests/test_sim.c sim.h
 
 gfx:
 	python3 mkgfx.py
+
+title:
+	python3 tools/mktitle.py
 
 usage: $(ROM)
 	$(RUN) $(USAGE) $(ROM:.gb=.map) -g
@@ -69,4 +82,4 @@ image:
 clean:
 	rm -f $(ROM) *.map *.noi *.o *.lst *.sym *.ihx *.asm *.adb tests/test_sim
 
-.PHONY: all test gfx usage image clean sym probe
+.PHONY: all test gfx title usage image clean sym probe fps

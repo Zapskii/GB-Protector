@@ -38,6 +38,7 @@ dots are enemies (and you, in the centre), small dots are humans.
     make probe    # headless play-test: drives the ROM and asserts the rules
     make sym      # build with -debug so the map carries every symbol (debuggers)
     make gfx      # regenerate gfx.h from mkgfx.py (gfx.h is committed)
+    make title    # regenerate title.h (title image) from tools/mktitle.py
     make usage    # ROM / RAM headroom
     make clean
 
@@ -56,6 +57,8 @@ variables out of PyBoy (`PY=.venv/bin/python make probe` if PyBoy is in a venv).
 | `tests/test_sim.c` | Host tests for `sim.h`                                     |
 | `mkgfx.py`      | Procedural tiles and sprites, drawn as ASCII -> `gfx.h`       |
 | `gfx.h`         | Generated, committed so a plain `make` needs no Python        |
+| `tools/mktitle.py` | Title-screen image -> `title.h` (tiles + map, deduped)     |
+| `title.h`       | Generated title image, committed; `title_screen()` swaps the BG tile bank to it and `new_game()` swaps back |
 | `tools/probe.py`| Headless play-test harness (dev only)                         |
 | `tools/shot.py` | Headless screenshot + scripted input (dev only)               |
 
@@ -70,15 +73,17 @@ variables out of PyBoy (`PY=.venv/bin/python make probe` if PyBoy is in a venv).
   scanline interrupt. Scanner blips are sprites drawn over it.
 * **Camera** - the ship eases toward the trailing side of the screen so you
   see further in the direction you are facing.
-* **Sprites** - 8x16 mode, 40 OAM entries, 10 per scanline.
+* **Sprites** - 8x16 mode, 40 OAM entries, 10 per scanline. When a scanline
+  band is over budget the DMG drops the highest OAM indices, so the draw order
+  of the four world lists rotates each frame (`render()`): crowded entities
+  flicker evenly instead of the same ones vanishing for good, and the ship is
+  always drawn first and never flickers. `make fps` guards the frame budget --
+  render runs before `wait_vbl_done()`, so an overrun silently halves the game.
 
 ## Not done yet
 
 * Sound is limited to noise-channel SFX (all in `sfx_*()`); no music.
-* No title screen, high scores or Super Game Boy border (`-Wm-ys` is already set).
-* The rescue has no sound of its own yet -- catching and setting one down are
-  silent, which is the one place the game does not tell you it worked.
-* Sprite flicker rotation for the 10-per-scanline limit.
+* No high scores or Super Game Boy border (`-Wm-ys` is already set).
 
 ## License
 

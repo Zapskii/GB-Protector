@@ -233,7 +233,7 @@ static void test_human_rescue(void)
     CHECK(h.state == HUM_DEAD);
 
     h.x = 200; h.y = 20; h.aux = 20; h.state = HUM_FALL;
-    for (i = 0; i < 5; i++) human_fall_step(&h, 96);
+    for (i = 0; i < 10; i++) human_fall_step(&h, 96);
     CHECK(h.y == 30);
     CHECK(human_catchable(&h));          /* the ship gets there in time */
     h.state = HUM_CARRIED;

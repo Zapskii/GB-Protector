@@ -16,6 +16,7 @@
 #include <stdint.h>
 #include "sim.h"
 #include "gfx.h"
+#include "title.h"
 
 /* ------------------------------------------------------------- constants */
 #define PLAY_H      120u            /* playfield height; HUD window starts here */
@@ -46,6 +47,7 @@
 #define ST_PLAY     0
 #define ST_DYING    1
 #define ST_OVER     2
+#define ST_TITLE    3   /* boot: waits for START, same handling as ST_OVER */
 
 #define RESCUE_BONUS 500            /* set a caught human back down */
 
@@ -112,6 +114,28 @@ static void sfx_boom(void)
     NR42_REG = 0xF3;
     NR43_REG = 0x63;
     NR44_REG = 0xC0;
+}
+
+/* The rescue: the one action that previously had no feedback.  Square channel
+ * 1 -- noise stays the shoot/boom channel, and no music exists yet to conflict
+ * with ch1.  A short up-chirp for catching a human, a long rising sweep for
+ * setting one down (+500).  Frequencies are ear-tuning values. */
+static void sfx_catch(void)
+{
+    NR10_REG = 0x71;        /* sweep: fast, rising */
+    NR11_REG = 0x80;        /* 50% duty            */
+    NR12_REG = 0x83;        /* volume 8, decay     */
+    NR13_REG = 0x7B;        /* ~988 Hz             */
+    NR14_REG = 0x87;        /* trigger             */
+}
+
+static void sfx_rescue(void)
+{
+    NR10_REG = 0x7F;        /* sweep: long, steep rise  */
+    NR11_REG = 0x80;
+    NR12_REG = 0x86;        /* volume 8, slower decay   */
+    NR13_REG = 0x00;        /* ~171 Hz start            */
+    NR14_REG = 0x85;        /* trigger                  */
 }
 
 /* ------------------------------------------------------------------ misc */
@@ -377,6 +401,7 @@ static void humans_update(void)
             torus_overlap(player_x, SHIP_W, hum[i].x, HUMAN_W)) {
             hum[i].state = HUM_CARRIED;
             carrying = i;
+            sfx_catch();
         }
     }
 
@@ -393,6 +418,7 @@ static void humans_update(void)
         hum[carrying].y = human_ground_y(hum[carrying].x);
         hum[carrying].state = HUM_GROUND;
         add_score(RESCUE_BONUS);
+        sfx_rescue();
     }
 }
 
@@ -581,12 +607,53 @@ static void blip(uint8_t k, uint16_t wx, uint8_t wy)
     spr(k, 0, 79 + (d >> 3), 121 + (wy >> 3));
 }
 
-static void render(void)
+/* One pass per world list, as plain induction loops.  These exist so render()
+ * can rotate the CATEGORY order cheaply: a runtime-indexed array access
+ * compiles roughly 3x slower on SDCC than an induction one, and rotating
+ * within the lists that way cost the game 40% of its frame budget
+ * (60 fps -> 37).  Category-level rotation measures free; use it. */
+static void draw_enemies(void)
 {
     uint8_t i;
+    for (i = 0; i < MAX_ENEMY; i++)
+        if (en_on[i])
+            spr(en[i].state == LANDER_MUTANT ? SPR_MUTANT : SPR_LANDER, 0,
+                torus_dx(cam, en[i].x), en[i].y);
+}
+
+static void draw_bullets(void)
+{
+    uint8_t i;
+    for (i = 0; i < MAX_BUL; i++)
+        if (blife[i])
+            spr(bown[i] == OWN_PLAYER ? SPR_BULLET : SPR_EBULLET, 0,
+                torus_dx(cam, bx[i]), by[i]);
+}
+
+static void draw_humans(void)
+{
+    uint8_t i;
+    for (i = 0; i < MAX_HUMAN; i++)
+        if (hum[i].state != HUM_DEAD)
+            spr(SPR_HUMAN, 0, torus_dx(cam, hum[i].x), hum[i].y);
+}
+
+static void draw_exps(void)
+{
+    uint8_t i;
+    for (i = 0; i < MAX_EXP; i++)
+        if (ex_on[i])
+            spr(SPR_EXP0 + (ex_t[i] >> 2), 0, torus_dx(cam, ex_x[i]), ex_y[i]);
+}
+
+static void render(void)
+{
+    uint8_t i, n;
 
     oam_n = 0;
 
+    /* Ship first, never rotated: with the DMG honouring OAM index order at
+     * 10 sprites per scanline, the first drawn is the last to be dropped. */
     if (state == ST_PLAY && !(invuln && (frame & 4))) {
         if (facing > 0) {
             spr(SPR_SHIP_L, 0, ship_sx, player_y);
@@ -596,23 +663,26 @@ static void render(void)
             spr(SPR_SHIP_L, S_FLIPX, ship_sx + 8, player_y);
         }
     }
-    for (i = 0; i < MAX_ENEMY; i++) {
-        if (en_on[i])
-            spr(en[i].state == LANDER_MUTANT ? SPR_MUTANT : SPR_LANDER, 0,
-                torus_dx(cam, en[i].x), en[i].y);
-    }
-    for (i = 0; i < MAX_BUL; i++) {
-        if (blife[i])
-            spr(bown[i] == OWN_PLAYER ? SPR_BULLET : SPR_EBULLET, 0,
-                torus_dx(cam, bx[i]), by[i]);
-    }
-    for (i = 0; i < MAX_HUMAN; i++) {
-        if (hum[i].state != HUM_DEAD)
-            spr(SPR_HUMAN, 0, torus_dx(cam, hum[i].x), hum[i].y);
-    }
-    for (i = 0; i < MAX_EXP; i++) {
-        if (ex_on[i])
-            spr(SPR_EXP0 + (ex_t[i] >> 2), 0, torus_dx(cam, ex_x[i]), ex_y[i]);
+
+    /* Everything else rotates so the 10-per-scanline cap eats a different
+     * victim each frame instead of erasing the same ones for good: each of
+     * the four lists takes turns leading.  Kept at category level only --
+     * within-list rotation measures at 2-40% of the frame budget on SDCC
+     * (see the draw_*() note), and the headroom here is a few hundred
+     * cycles. */
+    n = frame & 3;
+    if (n == 0) {
+        draw_enemies(); draw_bullets();
+        draw_humans();  draw_exps();
+    } else if (n == 1) {
+        draw_humans();  draw_exps();
+        draw_enemies(); draw_bullets();
+    } else if (n == 2) {
+        draw_bullets(); draw_humans();
+        draw_exps();    draw_enemies();
+    } else {
+        draw_exps();    draw_enemies();
+        draw_bullets(); draw_humans();
     }
 
     /* scanner, centred on the player */
@@ -633,6 +703,11 @@ static void new_game(void)
     uint16_t x;
 
     DISPLAY_OFF;
+
+    /* The title swapped the BG tile bank for the title image, so the game's
+     * own tiles go back before the terrain map is drawn (one 1.4 KB load). */
+    set_bkg_data(0, GFX_TILE_COUNT, gfx_tiles);
+    SHOW_WIN;
 
     score = 0; lives = 3; bombs = 3; wave = 1;
     player_x = 500; player_xf = 0; player_vx = 0; player_y = 48;
@@ -668,6 +743,29 @@ static void new_game(void)
 
     state = ST_PLAY;
     DISPLAY_ON;
+}
+
+/* Boot screen: a full-screen title image (tools/mktitle.py -> title.h) shown
+ * by swapping the BG tile bank for its own; new_game() swaps back.  Same
+ * shape as game_over_screen(), and it shares ST_OVER's handling in update():
+ * draw once, wait for START, call new_game().  The window layer is hidden --
+ * "PRESS START" is part of the image. */
+static void title_screen(void)
+{
+    uint8_t i;
+
+    for (i = 0; i < 40; i++) hide_sprite(i);
+    oam_prev = 0;
+
+    DISPLAY_OFF;
+    set_bkg_data(0, TITLE_TILE_COUNT, title_tiles);
+    set_bkg_tiles(0, 0, 20, 18, title_map);
+    HIDE_WIN;
+    SCX_REG = 0;
+    SCY_REG = 0;
+    BGP_REG = 0xE4;
+    DISPLAY_ON;
+    state = ST_TITLE;
 }
 
 static void game_over_screen(void)
@@ -710,7 +808,7 @@ static void update(void)
             if (lives == 0 || humans_alive() == 0) { game_over_screen(); return; }
             player_respawn();
         }
-    } else {                                /* ST_OVER */
+    } else {                                /* ST_OVER / ST_TITLE: wait for START */
         if (pressed & J_START) new_game();
         return;
     }
@@ -737,12 +835,12 @@ void main(void)
     rng_s = 0xACE1;
     DISPLAY_ON;
 
-    new_game();
+    title_screen();
 
     while (1) {
         update();
         wait_vbl_done();                    /* sprites (shadow OAM) copied now */
-        if (state != ST_OVER) {
+        if (state == ST_PLAY || state == ST_DYING) {
             SCX_REG = (uint8_t)(cam & 255u); /* same frame as the sprites */
             stream_bg();
             if (hud_dirty) { hud_draw(); hud_dirty = 0; }

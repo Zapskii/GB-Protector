@@ -21,7 +21,11 @@
 #define WORLD_COL_MASK 127u
 
 #define HUMAN_H        12u           /* sprite art height of a human   */
-#define FALL_SAFE      40u           /* a fall longer than this kills  */
+#define FALL_SAFE      40u           /* a longer fall kills            */
+#define FALL_STEP      1u            /* px a falling human moves per tick.
+                                        Half the ship's climb rate, so you
+                                        can always dive to meet it -- and
+                                        the catch window is ~20 frames. */
 
 /* ------------------------------------------------------------ torus math */
 
@@ -181,13 +185,13 @@ static void lander_step(Lander *l, const Target *t)
     }
 }
 
-/* Advance one falling human by one tick (2 px).  Lands safe, or dies if the
- * fall was longer than FALL_SAFE. */
+/* Advance one falling human by one tick (FALL_STEP px).  Lands safe, or dies
+ * if the fall was longer than FALL_SAFE. */
 static void human_fall_step(Target *h, uint8_t ground_y)
 {
     if (h->state != HUM_FALL) return;
-    if ((uint16_t)h->y + 2 < ground_y) {
-        h->y += 2;
+    if ((uint16_t)h->y + FALL_STEP < ground_y) {
+        h->y += FALL_STEP;
         return;
     }
     h->y = ground_y;
