@@ -20,7 +20,7 @@ to the deck and it walks away, for 500 points.
 | Up/Down    | Move vertically                                        |
 | A          | Fire (hold for autofire)                               |
 | B          | Smart bomb (destroys everything on screen, 3 per life) |
-| START      | Start from the title screen / restart after game over  |
+| START      | Start from the title / leave the game over screen early |
 
 Fly **into** a falling human to catch it; it hangs under your hull until you
 take it down to the deck, where it is released the moment your hull reaches the
@@ -29,6 +29,14 @@ from wherever you were.
 
 The scanner along the bottom shows the whole 1024 px world around you: large
 dots are enemies (and you, in the centre), small dots are humans.
+
+Your best score is saved to the cartridge, and shows on the title screen above
+PRESS START. Beat it and the game over screen says so; otherwise it shows the
+record you have to catch.
+
+Game over holds for five seconds and then puts the title back up on its own, so
+the score you just banked is already showing on it. START skips the wait and
+goes straight into a new game.
 
 ## Build
 
@@ -42,6 +50,10 @@ dots are enemies (and you, in the centre), small dots are humans.
     make title    # regenerate title.h (title image) from tools/mktitle.py
     make usage    # ROM / RAM headroom
     make clean
+
+The saved high score lives beside the ROM: `protector.gb.ram` for PyBoy,
+`protector.sav` for most other emulators. `make clean` deletes it, so a build
+never inherits somebody else's record.
 
 `make test` is the real test when you change gameplay: it compiles `sim.h` with
 plain gcc, so a broken seam collision or a wrong abduction edge fails in a
@@ -75,6 +87,16 @@ variables out of PyBoy (`PY=.venv/bin/python make probe` if PyBoy is in a venv).
   scanline interrupt. Scanner blips are sprites drawn over it.
 * **Camera** - the ship eases toward the trailing side of the screen so you
   see further in the direction you are facing.
+* **High score** - five bytes at the base of cartridge SRAM: two magic bytes,
+  the score, and a checksum over all of it, written only when a run beats it.
+  The cart type has to be one that *has* SRAM (`-Wl-yt0x1B -Wl-ya4` in the
+  Makefile): get that wrong and the game still runs, still writes, and still
+  looks like it is saving, but nothing that runs it ever writes the .sav back.
+  `sim.h` owns the record format and `make test` covers it against garbage and
+  half-written records; `make probe` boots a second emulator to check the score
+  actually comes back. The title screen draws it as sprites, above the title
+  image's own tile range -- sprite and BG tiles are the same VRAM, so a glyph
+  loaded into a tile the image uses redraws part of the artwork.
 * **Sprites** - 8x16 mode, 40 OAM entries, 10 per scanline. When a scanline
   band is over budget the DMG drops the highest OAM indices, so the draw order
   of the four world lists rotates each frame (`render()`): crowded entities
@@ -87,7 +109,7 @@ variables out of PyBoy (`PY=.venv/bin/python make probe` if PyBoy is in a venv).
 * Sound is SFX only, on channels the game keeps disjoint: noise (ch4) for
   shoot/boom, square (ch1, sweep) for the rescue catch/set-down (all in
   `sfx_*()`); no music.
-* No high scores or Super Game Boy border (`-Wm-ys` is already set).
+* No Super Game Boy border (`-Wm-ys` is already set).
 
 ## License
 

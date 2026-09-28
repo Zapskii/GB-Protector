@@ -242,6 +242,48 @@ static void test_human_rescue(void)
     CHECK(h.y == 30);
 }
 
+/* The high-score record. It exists to survive the console being switched off,
+ * so the three ways it can quietly lose somebody's best score -- the round
+ * trip, SRAM that was never written, and a write the power cut in half -- are
+ * all reachable from here, where they cost a second to check. */
+static void test_high_score(void)
+{
+    uint8_t b[HS_LEN], i, keep;
+    uint16_t v, n;
+
+    hs_write(b, 12345);
+    CHECK(hs_read(b) == 12345);
+    hs_write(b, 0);
+    CHECK(hs_read(b) == 0);
+    hs_write(b, 65535);                     /* add_score() caps here */
+    CHECK(hs_read(b) == 65535);
+
+    /* A cart nobody has ever saved to. 0x00 and 0xFF are what an emulator or a
+     * flash cart hands back, but real SRAM is arbitrary, so try a spread and
+     * insist none of it reads as a score. */
+    for (v = 0; v < 256; v++) {
+        for (i = 0; i < HS_LEN; i++) b[i] = (uint8_t)(v + i * 37u);
+        CHECK(hs_read(b) == 0);
+    }
+    /* And the near miss that actually worries: both magic bytes landed and the
+     * check byte did not. */
+    b[0] = HS_MAGIC0; b[1] = HS_MAGIC1; b[2] = 0x12; b[3] = 0x34; b[4] = 0x00;
+    CHECK(hs_read(b) == 0);
+
+    /* Every single-byte corruption of a good record is rejected -- a half
+     * written high score is worse than no high score. */
+    hs_write(b, 4242);
+    for (i = 0; i < HS_LEN; i++) {
+        keep = b[i];
+        for (n = 1; n < 256; n++) {
+            b[i] = (uint8_t)(keep + n);
+            CHECK(hs_read(b) == 0);
+        }
+        b[i] = keep;
+    }
+    CHECK(hs_read(b) == 4242);
+}
+
 int main(void)
 {
     test_torus_dx();
@@ -256,6 +298,7 @@ int main(void)
     test_mutant_chase();
     test_human_fall();
     test_human_rescue();
+    test_high_score();
     printf("OK: %d checks passed\n", checks);
     return 0;
 }

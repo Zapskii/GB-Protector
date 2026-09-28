@@ -230,4 +230,35 @@ static uint8_t human_landable(uint8_t ship_bottom, uint8_t ground_y)
     return (uint8_t)(ship_bottom >= ground_y);
 }
 
+/* ----------------------------------------------------------- high score
+ * main.c owns the cartridge SRAM; this file owns what the bytes in it mean, so
+ * "is this a save or a brand new cart's garbage?" is a question the host tests
+ * can answer.  Two magic bytes AND a checksum, because a fresh cart reads as
+ * arbitrary values and the power can drop partway through a write -- the data
+ * has to vouch for itself rather than trust a flag elsewhere. */
+#define HS_MAGIC0 0x47u         /* 'G' */
+#define HS_MAGIC1 0x50u         /* 'P' */
+#define HS_LEN    5u            /* magic, magic, score hi, score lo, check */
+
+static uint8_t hs_check(const uint8_t *b)
+{
+    return (uint8_t)(HS_MAGIC0 ^ HS_MAGIC1 ^ b[2] ^ b[3]);
+}
+
+/* The saved best, or 0 if the record does not check out. */
+static uint16_t hs_read(const uint8_t *b)
+{
+    if (b[0] != HS_MAGIC0 || b[1] != HS_MAGIC1 || b[4] != hs_check(b)) return 0;
+    return (uint16_t)(((uint16_t)b[2] << 8) | b[3]);
+}
+
+static void hs_write(uint8_t *b, uint16_t v)
+{
+    b[0] = HS_MAGIC0;
+    b[1] = HS_MAGIC1;
+    b[2] = (uint8_t)(v >> 8);
+    b[3] = (uint8_t)v;
+    b[4] = hs_check(b);
+}
+
 #endif /* SIM_H */

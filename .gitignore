@@ -11,6 +11,7 @@ tests/test_sim
 .DS_Store
 *.cdb
 *.sav
+*.ram
 
 # Editor / agent scratch
 .claude/

@@ -49,7 +49,24 @@
 #define ST_OVER     2
 #define ST_TITLE    3   /* boot: waits for START, same handling as ST_OVER */
 
+/* The title screen's high score, drawn as sprites rather than tiles.  Two
+ * reasons, both about the title image owning the tile bank: sprite colour 0 is
+ * transparent, so the digits sit on the art with no white box around them, and
+ * a number that changes needs no regenerated image.
+ *
+ * Sprite tiles and BG tiles are the same VRAM, so these must sit clear of every
+ * tile the title image uses -- otherwise loading a glyph silently redraws part
+ * of the artwork.  Past TITLE_TILE_COUNT, and past the game's own sprites
+ * (64-89) too, the range is free. */
+#define T_TITLE_GLYPH 144           /* even: 8x16 sprites pair 2n with 2n+1 */
+#if T_TITLE_GLYPH < TITLE_TILE_COUNT
+#error "T_TITLE_GLYPH overlaps the title image's BG tiles (shared VRAM)"
+#endif
+#define TITLE_HI_X    48            /* screen x of the "H" in "HI 00000" */
+#define TITLE_HI_Y    104           /* the white strip above the terrain band */
+
 #define RESCUE_BONUS 500            /* set a caught human back down */
+#define OVER_HOLD   300             /* frames the game over screen holds, 5 s */
 
 /* ----------------------------------------------------------------- state */
 static uint8_t  state;
@@ -69,6 +86,17 @@ static uint8_t  fire_cd, invuln, state_timer, bomb_flash;
 static uint8_t  lives, bombs, wave;
 static uint16_t score;
 static uint8_t  hud_dirty;
+static uint16_t over_timer;         /* counts the game over screen down */
+
+/* ----------------------------------------------------------- high score
+ * The record sits at the base of cartridge SRAM; sim.h owns its format, this
+ * file owns reaching it.  The Makefile asks the linker for MBC5 + RAM +
+ * battery (-Wl-yt0x1B) and 4 RAM banks (-Wl-ya4, 32 KB), which is what makes
+ * the cart header, the 0xA000 address below and the .sav an emulator writes
+ * agree with each other -- change one and you have a game that never saves. */
+static uint8_t  __at(0xA000) hs_sram[HS_LEN];
+static uint16_t hi_score;
+static uint8_t  new_high;
 
 static Lander   en[MAX_ENEMY];
 static uint8_t  en_on[MAX_ENEMY];
@@ -161,6 +189,31 @@ static void fmt5(char *d, uint16_t v)
         while (v >= p[i]) { v -= p[i]; d[i]++; }
     }
     d[4] = (char)('0' + v);
+}
+
+/* "<6-char label><5 digits>", so SCORE and HI line up under each other. */
+static void fmt_label(char *d, const char *label, uint16_t v)
+{
+    uint8_t i;
+    for (i = 0; i < 6; i++) d[i] = label[i];
+    fmt5(&d[6], v);
+    d[11] = 0;
+}
+
+/* SRAM is only mapped in while it is being touched: left enabled, a stray
+ * write to 0xA000-0xBFFF is indistinguishable from a save. */
+static void hi_load(void)
+{
+    ENABLE_RAM;
+    hi_score = hs_read(hs_sram);
+    DISABLE_RAM;
+}
+
+static void hi_save(uint16_t v)
+{
+    ENABLE_RAM;
+    hs_write(hs_sram, v);
+    DISABLE_RAM;
 }
 
 static void win_text(uint8_t x, uint8_t y, const char *s)
@@ -745,6 +798,55 @@ static void new_game(void)
     DISPLAY_ON;
 }
 
+/* "HI 00000" across the title art, as sprites rather than tiles.  Two reasons:
+ * the title image owns the whole BG tile bank (0..136) and is white-on-black,
+ * so a font-tile glyph there would come out a white box with dark strokes; and
+ * it is a number that changes, which no regenerated image can follow.  A sprite
+ * draws only its stroked pixels -- colour 0 is transparent -- so it drops onto
+ * the art clean.  It sits on the white strip under the ship and above the
+ * terrain band, and strokes in colour 2, which is the dark grey the title's own
+ * lettering uses (OBP0 = 0xE4, the palette the game's sprites already draw on). */
+static void title_hi_draw(void)
+{
+    static const uint8_t label[2] = { T_FONT_ALPHA + 7, T_FONT_ALPHA + 8 }; /* H I */
+    char s[5];
+    uint8_t i, n;
+
+    fmt5(s, hi_score);
+
+    /* 8x16 sprites pair an even tile with the odd one above it, so each glyph
+     * needs a blank bottom half.  T_BLANK is 16 zero bytes: nothing drawn. */
+    for (i = 0; i < 2; i++) {
+        set_sprite_data((uint8_t)(T_TITLE_GLYPH + 20 + 2 * i), 1,
+                        &gfx_tiles[label[i] * 16]);
+        set_sprite_data((uint8_t)(T_TITLE_GLYPH + 21 + 2 * i), 1,
+                        &gfx_tiles[T_BLANK * 16]);
+    }
+    for (i = 0; i < 10; i++) {
+        set_sprite_data((uint8_t)(T_TITLE_GLYPH + 2 * i), 1,
+                        &gfx_tiles[(T_FONT_DIGIT + i) * 16]);
+        set_sprite_data((uint8_t)(T_TITLE_GLYPH + 2 * i + 1), 1,
+                        &gfx_tiles[T_BLANK * 16]);
+    }
+
+    /* x/y below are screen coordinates; move_sprite() wants them offset by the
+     * 8x16 origin, which is where the +8/+16 comes from.  H at TITLE_HI_X, I
+     * one cell along, a blank cell, then the five digits.  Props stay 0, i.e.
+     * OBP0, the same palette the game's own sprites draw on. */
+    for (i = 0; i < 2; i++) {
+        n = i;
+        set_sprite_tile(n, (uint8_t)(T_TITLE_GLYPH + 20 + 2 * i));
+        set_sprite_prop(n, 0);
+        move_sprite(n, (uint8_t)(TITLE_HI_X + 8 + 8 * i), (uint8_t)(TITLE_HI_Y + 16));
+    }
+    for (i = 0; i < 5; i++) {
+        n = (uint8_t)(2 + i);
+        set_sprite_tile(n, (uint8_t)(T_TITLE_GLYPH + 2 * (uint8_t)(s[i] - '0')));
+        set_sprite_prop(n, 0);
+        move_sprite(n, (uint8_t)(TITLE_HI_X + 32 + 8 * i), (uint8_t)(TITLE_HI_Y + 16));
+    }
+}
+
 /* Boot screen: a full-screen title image (tools/mktitle.py -> title.h) shown
  * by swapping the BG tile bank for its own; new_game() swaps back.  Same
  * shape as game_over_screen(), and it shares ST_OVER's handling in update():
@@ -764,6 +866,7 @@ static void title_screen(void)
     SCX_REG = 0;
     SCY_REG = 0;
     BGP_REG = 0xE4;
+    title_hi_draw();
     DISPLAY_ON;
     state = ST_TITLE;
 }
@@ -776,17 +879,29 @@ static void game_over_screen(void)
     for (i = 0; i < 40; i++) hide_sprite(i);
     oam_prev = 0;
 
+    /* Bank it here, before the screen is even built, and only when it beats
+     * the record: this write is the one thing in the game that outlives the
+     * console being switched off. */
+    new_high = (uint8_t)(score > hi_score);
+    if (new_high) {
+        hi_score = score;
+        hi_save(hi_score);
+    }
+
     DISPLAY_OFF;
     fill_win_rect(0, 0, 20, 12, T_BLANK);
     WY_REG = 40;
-    win_text(5, 3, "GAME OVER");
-    s[0] = 'S'; s[1] = 'C'; s[2] = 'O'; s[3] = 'R'; s[4] = 'E'; s[5] = ' ';
-    fmt5(&s[6], score);
-    s[11] = 0;
+    /* No "!" on the end: glyph() knows digits and capitals, and anything else
+     * comes out as a blank, which is a silent way to lose a character. */
+    win_text(new_high ? 3 : 5, 3, new_high ? "NEW HIGH SCORE" : "GAME OVER");
+    fmt_label(s, "SCORE ", score);
     win_text(4, 5, s);
-    win_text(4, 8, "PRESS START");
+    fmt_label(s, "HI    ", hi_score);
+    win_text(4, 7, s);
+    win_text(4, 9, "PRESS START");
     BGP_REG = 0xE4;
     DISPLAY_ON;
+    over_timer = OVER_HOLD;
     state = ST_OVER;
 }
 
@@ -809,7 +924,11 @@ static void update(void)
             player_respawn();
         }
     } else {                                /* ST_OVER / ST_TITLE: wait for START */
-        if (pressed & J_START) new_game();
+        if (pressed & J_START) { new_game(); return; }
+        /* Game over gets bored and goes back to the title, which is also where
+         * the score it just banked is on show.  START cuts the wait short and
+         * starts play directly, as it always did; the title has no countdown. */
+        if (state == ST_OVER && !--over_timer) title_screen();
         return;
     }
     render();
@@ -819,6 +938,7 @@ void main(void)
 {
     sfx_init();
     DISPLAY_OFF;
+    hi_load();
     /* GBDK keeps BG tiles 0-127 at 0x9000 and sprite tiles at 0x8000, so the
      * same generated array is loaded twice: whole set as BG, sprites as OBJ. */
     set_bkg_data(0, GFX_TILE_COUNT, gfx_tiles);

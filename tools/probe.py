@@ -35,7 +35,16 @@ RESCUE_BONUS = 500                      # paid for setting a caught human down
 
 EN_SEEK, EN_GRAB, EN_CARRY, EN_MUTANT = 0, 1, 2, 3
 HUM_GROUND, HUM_HELD, HUM_FALL, HUM_DEAD, HUM_CARRIED = 0, 1, 2, 3, 4
-ST_PLAY, ST_DYING, ST_OVER = 0, 1, 2
+ST_PLAY, ST_DYING, ST_OVER, ST_TITLE = 0, 1, 2, 3
+
+# The game seeds its RNG from DIV_REG -- elapsed cycles -- so the whole random
+# stream moves whenever main.c changes at all, even in code play cannot reach.
+# Sections that need luck (a human caught AND carried down) then pass or fail on
+# whether that build happened to draw a kind stream, which is a gate that goes
+# red for no reason.  start() pins the seed instead, so what is tested is the
+# rule, not the luck.  This one is main.c's own fallback constant; it is here
+# because it is known to produce a catch and a set-down.
+RNG_SEED = 0xACE1
 
 
 def parse_map(path):
@@ -61,7 +70,7 @@ class Game:
         self.p = PyBoy(rom, window="null", sound_emulated=False)
         self.addr = parse_map(mapfile)
         for need in ("state", "lives", "wave", "score", "player_x", "player_y",
-                     "hum", "en", "en_on", "en_tgt"):
+                     "hum", "en", "en_on", "en_tgt", "hi_score", "rng_s"):
             if need not in self.addr:
                 sys.exit("probe: %s missing from %s -- run `make sym`" % (need, mapfile))
 
@@ -132,6 +141,13 @@ class Game:
         self.run(boot)                      # past PyBoy's own boot splash
         self.run(20, "S")                   # title screen -> new_game()
         self.run(settle)
+        self.seed_rng(RNG_SEED)
+
+    def seed_rng(self, v):
+        """Pin the game's RNG. See RNG_SEED for why this is worth a step."""
+        a = self.addr["rng_s"]
+        self.p.memory[a] = v & 0xFF
+        self.p.memory[a + 1] = (v >> 8) & 0xFF
 
     def autopilot(self, frames, fire=True, catch=False):
         """Steer toward the nearest live enemy, one decision per frame. Crude,
@@ -329,6 +345,49 @@ def smoke(rom, mapfile):
     if bonus is not None:
         check(bonus >= RESCUE_BONUS,
               "setting one down pays the rescue bonus (%d points)" % bonus)
+
+    # The high score is the one piece of state that outlives the console, so it
+    # is the one thing tests/test_sim.c cannot finish the job on: sim.h knows
+    # the record format, but whether the cartridge is wired for SRAM at all is a
+    # pair of linker flags (-Wl-yt/-ya), an address (0xA000) and a register
+    # write. Bank a score, then boot a second emulator on the same ROM and watch
+    # it come back -- that is the whole feature, and no part of the host tests
+    # can see it.
+    print("high score")
+    g = Game(rom, mapfile)
+    g.start()
+    best = 0
+    for _ in range(700):                    # 21000 frames; a game over takes ~7900
+        g.autopilot(30)
+        best = max(best, g.score)
+        if g.var("state") == ST_OVER:
+            break
+    check(g.var("state") == ST_OVER,
+          "a run reaches game over (state %d)" % g.var("state"))
+    hi = g.u16(g.addr["hi_score"])
+    check(hi >= best,
+          "its score is banked as the high score (%d, scored %d)" % (hi, best))
+
+    # The game over screen gives way to the title after five seconds, so a
+    # cabinet-style attract loop comes back on its own -- START still cuts the
+    # wait short. The break above can happen up to 30 frames after the screen
+    # appeared, hence the margin on both sides of the 300-frame hold.
+    g.run(240)
+    check(g.var("state") == ST_OVER,
+          "it sits on the game over screen for a while (state %d)" % g.var("state"))
+    g.run(120)
+    check(g.var("state") == ST_TITLE,
+          "then returns to the title on its own (state %d)" % g.var("state"))
+    g.run(20, "S")
+    check(g.var("state") == ST_PLAY,
+          "where START still starts a new game (state %d)" % g.var("state"))
+    g.p.stop()                              # flushes cartridge RAM to <rom>.ram
+
+    g = Game(rom, mapfile)
+    g.run(240)                              # boot far enough for main() to read it
+    reloaded = g.u16(g.addr["hi_score"])
+    check(reloaded == hi,
+          "and a later boot loads it back (banked %d, reloaded %d)" % (hi, reloaded))
 
     print("%d failures" % len(fails))
     return 1 if fails else 0

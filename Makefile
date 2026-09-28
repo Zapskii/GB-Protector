@@ -35,7 +35,12 @@ endif
 
 # -Wm-ys : Super Game Boy flag in the header, from day one
 # -Wl-m -Wl-j : linker map + NoICE symbols for romusage / debugging
-LCCFLAGS = -Wm-ys -Wm-yn"PROTECTOR" -Wl-m -Wl-j
+# -Wl-yt0x1B : MBC5 + RAM + battery. The high score lives in cartridge SRAM
+#              (hs_sram in main.c), which needs a cart type that HAS SRAM.
+# -Wl-ya4 : 4 RAM banks (32 KB). This is the header's SRAM-size byte; get it
+#           wrong and the game still runs, but emulators and flash carts see a
+#           cartridge with no RAM to save to, so the score never comes back.
+LCCFLAGS = -Wm-ys -Wm-yn"PROTECTOR" -Wl-m -Wl-j -Wl-yt0x1B -Wl-ya4
 
 all: $(ROM)
 
@@ -80,6 +85,7 @@ image:
 	docker build -t gbdk-dev .
 
 clean:
-	rm -f $(ROM) *.map *.noi *.o *.lst *.sym *.ihx *.asm *.adb tests/test_sim
+	rm -f $(ROM) *.map *.noi *.o *.lst *.sym *.ihx *.asm *.adb tests/test_sim \
+	      $(ROM:.gb=.sav) $(ROM).ram
 
 .PHONY: all test gfx title usage image clean sym probe fps
