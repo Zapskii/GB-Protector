@@ -14,13 +14,13 @@ to the deck and it walks away, for 500 points.
 
 ## Controls
 
-| Button   | Action                                          |
-|----------|-------------------------------------------------|
-| Left/Right | Thrust (with momentum); also turns the ship   |
-| Up/Down  | Move vertically                                 |
-| A        | Fire (hold for autofire)                        |
-| B        | Smart bomb (destroys everything on screen, 3 per life) |
-| START    | Restart from the game over screen               |
+| Button     | Action                                                 |
+|------------|--------------------------------------------------------|
+| Left/Right | Thrust (with momentum); also turns the ship            |
+| Up/Down    | Move vertically                                        |
+| A          | Fire (hold for autofire)                               |
+| B          | Smart bomb (destroys everything on screen, 3 per life) |
+| START      | Start from the title screen / restart after game over  |
 
 Fly **into** a falling human to catch it; it hangs under your hull until you
 take it down to the deck, where it is released the moment your hull reaches the
@@ -36,6 +36,7 @@ dots are enemies (and you, in the centre), small dots are humans.
     make image    # build the Docker toolchain image (once; picks the host arch)
     make test     # host unit tests for sim.h, plain gcc, no emulator
     make probe    # headless play-test: drives the ROM and asserts the rules
+    make fps      # headless frame-rate check: render() must fit in vblank
     make sym      # build with -debug so the map carries every symbol (debuggers)
     make gfx      # regenerate gfx.h from mkgfx.py (gfx.h is committed)
     make title    # regenerate title.h (title image) from tools/mktitle.py
@@ -50,17 +51,18 @@ variables out of PyBoy (`PY=.venv/bin/python make probe` if PyBoy is in a venv).
 
 ## Layout
 
-| File            | What it is                                                    |
-|-----------------|---------------------------------------------------------------|
-| `main.c`        | The game: loop, camera, terrain streaming, entities, render   |
-| `sim.h`         | Pure logic (torus math, terrain, lander state machine); no GBDK |
-| `tests/test_sim.c` | Host tests for `sim.h`                                     |
-| `mkgfx.py`      | Procedural tiles and sprites, drawn as ASCII -> `gfx.h`       |
-| `gfx.h`         | Generated, committed so a plain `make` needs no Python        |
-| `tools/mktitle.py` | Title-screen image -> `title.h` (tiles + map, deduped)     |
-| `title.h`       | Generated title image, committed; `title_screen()` swaps the BG tile bank to it and `new_game()` swaps back |
-| `tools/probe.py`| Headless play-test harness (dev only)                         |
-| `tools/shot.py` | Headless screenshot + scripted input (dev only)               |
+| File               | What it is                                                   |
+|--------------------|--------------------------------------------------------------|
+| `main.c`           | The game: loop, camera, terrain streaming, entities, render  |
+| `sim.h`            | Pure logic (torus math, terrain, lander state machine); no GBDK |
+| `tests/test_sim.c` | Host tests for `sim.h`                                       |
+| `mkgfx.py`         | Procedural tiles and sprites, drawn as ASCII -> `gfx.h`      |
+| `gfx.h`            | Generated, committed so a plain `make` needs no Python       |
+| `tools/mktitle.py` | Title-screen image -> `title.h` (tiles + map, deduped)       |
+| `title.h`          | Generated title image; `title_screen()` swaps the BG tile bank to it, `new_game()` swaps back |
+| `tools/probe.py`   | Headless play-test harness (dev only)                        |
+| `tools/shot.py`    | Headless screenshot + scripted input (dev only)              |
+| `tools/fps.py`     | Headless frame-rate check via the game's own frame counter (dev only) |
 
 ## How it works
 
@@ -82,7 +84,9 @@ variables out of PyBoy (`PY=.venv/bin/python make probe` if PyBoy is in a venv).
 
 ## Not done yet
 
-* Sound is limited to noise-channel SFX (all in `sfx_*()`); no music.
+* Sound is SFX only, on channels the game keeps disjoint: noise (ch4) for
+  shoot/boom, square (ch1, sweep) for the rescue catch/set-down (all in
+  `sfx_*()`); no music.
 * No high scores or Super Game Boy border (`-Wm-ys` is already set).
 
 ## License
