@@ -3,7 +3,8 @@
 A Defender-style side-scrolling shooter for the Game Boy (DMG), written in
 GBDK-2020 C with no game engine.
 
-Playable ROM: **[protector.gb, release v1.0](https://github.com/Zapskii/GB-Protector/releases/latest)**.
+Playable ROM: **[protector.gb](https://github.com/Zapskii/GB-Protector/releases/latest)**
+(latest release).
 
 Protect the humans on the ground. Landers descend, abduct a human, and carry
 it to the top of the screen, where the pair becomes a fast, shooting mutant.
