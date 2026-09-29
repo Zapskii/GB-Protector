@@ -48,6 +48,7 @@ goes straight into a new game.
     make sym      # build with -debug so the map carries every symbol (debuggers)
     make gfx      # regenerate gfx.h from mkgfx.py (gfx.h is committed)
     make title    # regenerate title.h (title image) from tools/mktitle.py
+    make border   # regenerate border_data.c (SGB border) from art/border_sgb.png
     make usage    # ROM / RAM headroom
     make clean
 
@@ -72,6 +73,10 @@ variables out of PyBoy (`PY=.venv/bin/python make probe` if PyBoy is in a venv).
 | `gfx.h`            | Generated, committed so a plain `make` needs no Python       |
 | `tools/mktitle.py` | Title-screen image -> `title.h` (tiles + map, deduped)       |
 | `title.h`          | Generated title image; `title_screen()` swaps the BG tile bank to it, `new_game()` swaps back |
+| `art/border_sgb.png` | The Super Game Boy border art, 256x224 with the game area transparent |
+| `tools/mkborder.py` | Rewords that art in place, in the art's own font, then `make border` |
+| `sgb_border.c`     | `set_sgb_border()`: the CHR_TRN/PCT_TRN transfer that installs it |
+| `border_data.c`    | Generated border tiles/map/palettes, committed so `make` needs no Python |
 | `tools/probe.py`   | Headless play-test harness (dev only)                        |
 | `tools/shot.py`    | Headless screenshot + scripted input (dev only)              |
 | `tools/fps.py`     | Headless frame-rate check via the game's own frame counter (dev only) |
@@ -97,6 +102,16 @@ variables out of PyBoy (`PY=.venv/bin/python make probe` if PyBoy is in a venv).
   actually comes back. The title screen draws it as sprites, above the title
   image's own tile range -- sprite and BG tiles are the same VRAM, so a glyph
   loaded into a tile the image uses redraws part of the artwork.
+* **Super Game Boy border** - `art/border_sgb.png` goes through `png2asset`
+  into `border_data.c` (tiles, map, palettes), and `set_sgb_border()` ships it
+  in the `CHR_TRN`/`PCT_TRN` transfers the SGB reads off the *rendered screen* --
+  which is why it runs once at boot, after `DISPLAY_ON`, and why it has to
+  reload the GB tile bank afterwards: the transfer goes through VRAM and leaves
+  it full of border. Everything is behind `sgb_check()`, so a DMG boots exactly
+  as it did before (`make` output is pixel-identical either way).
+* **Sound** - SFX only, on channels the game keeps disjoint: noise (ch4) for
+  shoot/boom, square (ch1, sweep) for the rescue catch/set-down (all in
+  `sfx_*()`); no music.
 * **Sprites** - 8x16 mode, 40 OAM entries, 10 per scanline. When a scanline
   band is over budget the DMG drops the highest OAM indices, so the draw order
   of the four world lists rotates each frame (`render()`): crowded entities
@@ -106,10 +121,7 @@ variables out of PyBoy (`PY=.venv/bin/python make probe` if PyBoy is in a venv).
 
 ## Not done yet
 
-* Sound is SFX only, on channels the game keeps disjoint: noise (ch4) for
-  shoot/boom, square (ch1, sweep) for the rescue catch/set-down (all in
-  `sfx_*()`); no music.
-* No Super Game Boy border (`-Wm-ys` is already set).
+* Music - sound is SFX only.
 
 ## License
 

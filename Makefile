@@ -5,12 +5,14 @@
 #   make fps      headless frame-rate check (render must fit in vblank)
 #   make gfx      regenerate gfx.h from mkgfx.py
 #   make title    regenerate title.h (title image) from tools/mktitle.py
+#   make border   regenerate border_data.c from art/border_sgb.png (SGB border)
 #   make usage    ROM/RAM headroom
 #   make image    build the gbdk-dev Docker image used when GBDK_HOME is absent
 #   make clean
 
 ROM  = protector.gb
-SRCS = main.c sim.h gfx.h title.h
+CFILES = main.c sgb_border.c border_data.c
+SRCS = $(CFILES) sim.h gfx.h title.h sgb_border.h border_data.h
 # The probe needs PyBoy. Prefer the project venv, fall back to whatever python3
 # is on PATH: make probe PY=python3
 ifneq ($(wildcard .venv/bin/python),)
@@ -23,6 +25,7 @@ ifneq ($(wildcard $(GBDK_HOME)/bin/lcc),)
   RUN   :=
   LCC   := $(GBDK_HOME)/bin/lcc
   USAGE := $(GBDK_HOME)/bin/romusage
+  P2A   := $(GBDK_HOME)/bin/png2asset
 else
   # GBDK is not installed on this host, so run the toolchain out of the image.
   # lcc must be the FULL PATH: it is not on PATH inside gbdk-dev, and a bare
@@ -31,6 +34,7 @@ else
   RUN   := docker run --rm -u $(shell id -u):$(shell id -g) -v "$(CURDIR)":/work -w /work gbdk-dev
   LCC   := /opt/gbdk/bin/lcc
   USAGE := /opt/gbdk/bin/romusage
+  P2A   := /opt/gbdk/bin/png2asset
 endif
 
 # -Wm-ys : Super Game Boy flag in the header, from day one
@@ -45,13 +49,13 @@ LCCFLAGS = -Wm-ys -Wm-yn"PROTECTOR" -Wl-m -Wl-j -Wl-yt0x1B -Wl-ya4
 all: $(ROM)
 
 $(ROM): $(SRCS)
-	$(RUN) $(LCC) $(LCCFLAGS) -o $@ main.c
+	$(RUN) $(LCC) $(LCCFLAGS) -o $@ $(CFILES)
 
 # A `-debug` build: the linker map then carries EVERY symbol, not just the
 # globals, which is what tools/probe.py reads the game's state through -- and
 # what emulator debuggers want. Not the default, because it is a bigger ROM.
 sym: $(SRCS)
-	$(RUN) $(LCC) $(LCCFLAGS) -debug -o $(ROM) main.c
+	$(RUN) $(LCC) $(LCCFLAGS) -debug -o $(ROM) $(CFILES)
 
 # Headless play-test with PyBoy: drives the ROM and asserts the rules that live
 # in main.c rather than sim.h -- abduction, the rescue fall, scoring. Needs the
@@ -78,6 +82,15 @@ gfx:
 title:
 	python3 tools/mktitle.py
 
+# The Super Game Boy border: art/border_sgb.png (256x224; the 160x144 game area
+# at x=48,y=40 is transparent) -> border_data.c/.h, committed like gfx.h so a
+# plain `make` needs no Python. -pack_mode sgb is what gets the SGB layout --
+# 4bpp tiles, a 256x224 map, one attribute byte per cell -- instead of a GB
+# screen; -use_map_attributes keeps that byte, which is the per-cell palette.
+border:
+	$(RUN) $(P2A) art/border_sgb.png -map -bpp 4 -max_palettes 4 \
+	      -pack_mode sgb -use_map_attributes -c border_data.c
+
 usage: $(ROM)
 	$(RUN) $(USAGE) $(ROM:.gb=.map) -g
 
@@ -88,4 +101,4 @@ clean:
 	rm -f $(ROM) *.map *.noi *.o *.lst *.sym *.ihx *.asm *.adb tests/test_sim \
 	      $(ROM:.gb=.sav) $(ROM).ram
 
-.PHONY: all test gfx title usage image clean sym probe fps
+.PHONY: all test gfx title border usage image clean sym probe fps

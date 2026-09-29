@@ -13,10 +13,13 @@
  *           A = fire (hold for autofire), B = smart bomb, START = restart.
  */
 #include <gb/gb.h>
+#include <gb/sgb.h>
 #include <stdint.h>
 #include "sim.h"
 #include "gfx.h"
 #include "title.h"
+#include "sgb_border.h"
+#include "border_data.h"
 
 /* ------------------------------------------------------------- constants */
 #define PLAY_H      120u            /* playfield height; HUD window starts here */
@@ -954,6 +957,24 @@ void main(void)
     WY_REG = PLAY_H;
     rng_s = 0xACE1;
     DISPLAY_ON;
+
+    /* Super Game Boy border, once, at boot.  The SGB reads the CHR_TRN/PCT_TRN
+     * payloads off the rendered screen, so this has to come after DISPLAY_ON --
+     * and it trashes GB VRAM getting there, which costs nothing here because
+     * title_screen() reloads the tile bank it wants on the next line.  Four
+     * frames first: a PAL SNES needs that delay at startup or no border shows.
+     * sgb_check() is false on a DMG, so an ordinary Game Boy boots exactly as
+     * it did before -- all of this is behind that gate. */
+    {
+        uint8_t i;
+        for (i = 0; i != 4; i++) vsync();
+    }
+    if (sgb_check()) {
+        set_sgb_border((unsigned char *)border_data_tiles, sizeof(border_data_tiles),
+                       (unsigned char *)border_data_map, sizeof(border_data_map),
+                       (unsigned char *)border_data_palettes,
+                       sizeof(border_data_palettes));
+    }
 
     title_screen();
 
