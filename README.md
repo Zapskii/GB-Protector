@@ -3,6 +3,8 @@
 A Defender-style side-scrolling shooter for the Game Boy (DMG), written in
 GBDK-2020 C with no game engine.
 
+Playable ROM: **[protector.gb, release v1.0](https://github.com/Zapskii/GB-Protector/releases/latest)**.
+
 Protect the humans on the ground. Landers descend, abduct a human, and carry
 it to the top of the screen, where the pair becomes a fast, shooting mutant.
 Lose every human and it is game over.
@@ -55,6 +57,10 @@ goes straight into a new game.
 The saved high score lives beside the ROM: `protector.gb.ram` for PyBoy,
 `protector.sav` for most other emulators. `make clean` deletes it, so a build
 never inherits somebody else's record.
+
+Building a ROM to hand out? `make probe`, `make fps` and `make sym` leave a
+`-debug` build in `protector.gb`; plain `make` does not, and `make` alone will
+not notice, because the file is already newer than its sources.
 
 `make test` is the real test when you change gameplay: it compiles `sim.h` with
 plain gcc, so a broken seam collision or a wrong abduction edge fails in a
