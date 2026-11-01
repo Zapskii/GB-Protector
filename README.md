@@ -51,7 +51,7 @@ goes straight into a new game.
     make sym      # build with -debug so the map carries every symbol (debuggers)
     make gfx      # regenerate gfx.h from mkgfx.py (gfx.h is committed)
     make title    # regenerate title.h (title image) from tools/mktitle.py
-    make border   # regenerate border_data.c (SGB border) from art/border_sgb.png
+    make border   # regenerate border_data.c (SGB border) from art/border_sgb.png (needs ../GB-SGB-Tooling)
     make usage    # ROM / RAM headroom
     make clean
 
