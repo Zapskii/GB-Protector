@@ -1,4 +1,4 @@
-[Play online at retro.zapski.com](https://retro.zapski.com)
+🎮 [Play online](https://retro.zapski.com/play/protector) · 📖 [Read the review](https://retro.zapski.com/blog/protector-game-boy-defender-rescue) · [retro.zapski.com](https://retro.zapski.com)
 
 # GB-Protector
 
